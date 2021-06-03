@@ -11,8 +11,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/DataDog/tracepb/pb"
-
 	"github.com/cihub/seelog"
 	"github.com/stretchr/testify/assert"
 )
@@ -120,24 +118,18 @@ func TestReplaceDigits(t *testing.T) {
 }
 
 func TestObfuscateStatsGroup(t *testing.T) {
-	statsGroup := func(typ, resource string) *pb.ClientGroupedStats {
-		return &pb.ClientGroupedStats{
-			Type:     typ,
-			Resource: resource,
-		}
-	}
 	o := NewObfuscator(nil)
 	for _, tt := range []struct {
-		in  *pb.ClientGroupedStats // input stats
-		out string                 // output obfuscated resource
+		typ, resource string
+		out           string // output obfuscated resource
 	}{
-		{statsGroup("sql", "SELECT 1 FROM db"), "SELECT ? FROM db"},
-		{statsGroup("sql", "SELECT 1\nFROM Blogs AS [b\nORDER BY [b]"), nonParsableResource},
-		{statsGroup("redis", "ADD 1, 2"), "ADD"},
-		{statsGroup("other", "ADD 1, 2"), "ADD 1, 2"},
+		{"sql", "SELECT 1 FROM db", "SELECT ? FROM db"},
+		{"sql", "SELECT 1\nFROM Blogs AS [b\nORDER BY [b]", nonParsableResource},
+		{"redis", "ADD 1, 2", "ADD"},
+		{"other", "ADD 1, 2", "ADD 1, 2"},
 	} {
-		o.ObfuscateStatsGroup(tt.in)
-		assert.Equal(t, tt.in.Resource, tt.out)
+		out := o.ObfuscateStatsGroup(tt.typ, tt.resource)
+		assert.Equal(t, out, tt.out)
 	}
 }
 
@@ -146,26 +138,16 @@ func TestObfuscateStatsGroup(t *testing.T) {
 func TestObfuscateDefaults(t *testing.T) {
 	t.Run("redis", func(t *testing.T) {
 		cmd := "SET k v\nGET k"
-		span := &pb.Span{
-			Type:     "redis",
-			Resource: cmd,
-			Meta:     map[string]string{"redis.raw_command": cmd},
-		}
-		NewObfuscator(nil).Obfuscate(span)
-		assert.Equal(t, cmd, span.Meta["redis.raw_command"])
-		assert.Equal(t, "SET GET", span.Resource)
+		out, err := NewObfuscator(nil).Obfuscate("redis", cmd)
+		assert.NoError(t, err)
+		assert.Equal(t, out.Query, out.Query)
 	})
 
 	t.Run("sql", func(t *testing.T) {
 		query := "UPDATE users(name) SET ('Jim')"
-		span := &pb.Span{
-			Type:     "sql",
-			Resource: query,
-			Meta:     map[string]string{"sql.query": query},
-		}
-		NewObfuscator(nil).Obfuscate(span)
-		assert.Equal(t, query, span.Meta["sql.query"])
-		assert.Equal(t, "UPDATE users ( name ) SET ( ? )", span.Resource)
+		out, err := NewObfuscator(nil).Obfuscate("sql", query)
+		assert.NoError(t, err)
+		assert.Equal(t, "UPDATE users ( name ) SET ( ? )", out.Query)
 	})
 }
 
@@ -178,9 +160,9 @@ func TestObfuscateConfig(t *testing.T) {
 		cfg *Config,
 	) func(*testing.T) {
 		return func(t *testing.T) {
-			span := &pb.Span{Type: typ, Meta: map[string]string{key: val}}
-			NewObfuscator(cfg).Obfuscate(span)
-			assert.Equal(t, exp, span.Meta[key])
+			out, err := NewObfuscator(cfg).Obfuscate(typ, val)
+			assert.NoError(t, err)
+			assert.Equal(t, exp, out.Query)
 		}
 	}
 

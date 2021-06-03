@@ -11,21 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DataDog/tracepb/pb"
 	"github.com/stretchr/testify/assert"
 )
 
 type redisTestCase struct {
 	query            string
 	expectedResource string
-}
-
-func redisSpan(query string) *pb.Span {
-	return &pb.Span{
-		Resource: query,
-		Type:     "redis",
-		Meta:     map[string]string{redisRawCommand: query},
-	}
 }
 
 func TestRedisQuantizer(t *testing.T) {
@@ -94,9 +85,8 @@ func TestRedisQuantizer(t *testing.T) {
 	}
 
 	for _, testCase := range queryToExpected {
-		s := redisSpan(testCase.query)
-		NewObfuscator(nil).Obfuscate(s)
-		assert.Equal(testCase.expectedResource, s.Resource)
+		out := NewObfuscator(nil).QuantizeRedisString(testCase.query)
+		assert.Equal(testCase.expectedResource, out)
 	}
 }
 
@@ -370,20 +360,18 @@ SET k ?`,
 		},
 	} {
 		t.Run(strconv.Itoa(ti), func(t *testing.T) {
-			span := redisSpan(tt.in)
-			NewObfuscator(nil).obfuscateRedis(span)
-			assert.Equal(t, tt.out, span.Meta[redisRawCommand], tt.in)
+			out := NewObfuscator(nil).obfuscateRedis(tt.in)
+			assert.Equal(t, tt.out, out, out)
 		})
 	}
 }
 
 func BenchmarkRedisObfuscator(b *testing.B) {
 	cmd := strings.Repeat("GEOADD key longitude latitude member longitude latitude member longitude latitude member\n", 5)
-	span := redisSpan(cmd)
 	b.Run(fmt.Sprintf("%db", len(cmd)), func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			NewObfuscator(nil).obfuscateRedis(span)
+			NewObfuscator(nil).obfuscateRedis(cmd)
 		}
 	})
 }
@@ -392,7 +380,7 @@ func BenchmarkRedisQuantizer(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		span := redisSpan(`DEL k1\nDEL k2\nHMSET k1 "a" 1 "b" 2 "c" 3\nHMSET k2 "d" "4" "e" "4"\nDEL k3\nHMSET k3 "f" "5"\nDEL k1\nDEL k2\nHMSET k1 "a" 1 "b" 2 "c" 3\nHMSET k2 "d" "4" "e" "4"\nDEL k3\nHMSET k3 "f" "5"\nDEL k1\nDEL k2\nHMSET k1 "a" 1 "b" 2 "c" 3\nHMSET k2 "d" "4" "e" "4"\nDEL k3\nHMSET k3 "f" "5"\nDEL k1\nDEL k2\nHMSET k1 "a" 1 "b" 2 "c" 3\nHMSET k2 "d" "4" "e" "4"\nDEL k3\nHMSET k3 "f" "5"`)
-		NewObfuscator(nil).quantizeRedis(span)
+		cmd := `DEL k1\nDEL k2\nHMSET k1 "a" 1 "b" 2 "c" 3\nHMSET k2 "d" "4" "e" "4"\nDEL k3\nHMSET k3 "f" "5"\nDEL k1\nDEL k2\nHMSET k1 "a" 1 "b" 2 "c" 3\nHMSET k2 "d" "4" "e" "4"\nDEL k3\nHMSET k3 "f" "5"\nDEL k1\nDEL k2\nHMSET k1 "a" 1 "b" 2 "c" 3\nHMSET k2 "d" "4" "e" "4"\nDEL k3\nHMSET k3 "f" "5"\nDEL k1\nDEL k2\nHMSET k1 "a" 1 "b" 2 "c" 3\nHMSET k2 "d" "4" "e" "4"\nDEL k3\nHMSET k3 "f" "5"`
+		NewObfuscator(nil).QuantizeRedisString(cmd)
 	}
 }

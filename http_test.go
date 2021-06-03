@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/DataDog/tracepb/pb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -145,14 +144,14 @@ func TestObfuscateHTTP(t *testing.T) {
 
 	t.Run("wrong-type", func(t *testing.T) {
 		assert := assert.New(t)
-		span := pb.Span{Type: "web_server", Meta: map[string]string{"http.url": testURL}}
-		NewObfuscator(&Config{
+		out, err := NewObfuscator(&Config{
 			HTTP: HTTPConfig{
 				RemoveQueryString: true,
 				RemovePathDigits:  true,
 			},
-		}).Obfuscate(&span)
-		assert.Equal(testURL, span.Meta["http.url"])
+		}).Obfuscate("web_server", testURL)
+		assert.NoError(err)
+		assert.Equal(testURL, out.Query)
 	})
 }
 
@@ -164,11 +163,8 @@ func testHTTPObfuscation(tt *inOutTest, conf *Config) func(t *testing.T) {
 			cfg = *conf
 		}
 		assert := assert.New(t)
-		span := pb.Span{
-			Type: "http",
-			Meta: map[string]string{"http.url": tt.in},
-		}
-		NewObfuscator(&cfg).Obfuscate(&span)
-		assert.Equal(tt.out, span.Meta["http.url"])
+		out, err := NewObfuscator(&cfg).Obfuscate("http", tt.in)
+		assert.NoError(err)
+		assert.Equal(tt.out, out.Query)
 	}
 }

@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/DataDog/tracepb/pb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,72 +27,33 @@ type sqlTokenizerTestCase struct {
 	expectedKind TokenKind
 }
 
-func SQLSpan(query string) *pb.Span {
-	return &pb.Span{
-		Resource: query,
-		Type:     "sql",
-		Meta: map[string]string{
-			"sql.query": query,
-		},
-	}
-}
-
 func TestSQLResourceQuery(t *testing.T) {
 	assert := assert.New(t)
-	span := &pb.Span{
-		Resource: "SELECT * FROM users WHERE id = 42",
-		Type:     "sql",
-		Meta: map[string]string{
-			"sql.query": "SELECT * FROM users WHERE id = 42",
-		},
-	}
 
-	NewObfuscator(nil).Obfuscate(span)
-	assert.Equal("SELECT * FROM users WHERE id = ?", span.Resource)
-	assert.Equal("SELECT * FROM users WHERE id = 42", span.Meta["sql.query"])
+	out, err := NewObfuscator(nil).Obfuscate("sql", "SELECT * FROM users WHERE id = 42")
+	assert.NoError(err)
+	assert.Equal("SELECT * FROM users WHERE id = ?", out.Query)
 }
 
 func TestSQLResourceWithoutQuery(t *testing.T) {
 	assert := assert.New(t)
-	span := &pb.Span{
-		Resource: "SELECT * FROM users WHERE id = 42",
-		Type:     "sql",
-	}
 
-	NewObfuscator(nil).Obfuscate(span)
-	assert.Equal("SELECT * FROM users WHERE id = ?", span.Resource)
-	assert.Equal("SELECT * FROM users WHERE id = ?", span.Meta["sql.query"])
+	out, err := NewObfuscator(nil).Obfuscate("sql", "SELECT * FROM users WHERE id = 42")
+	assert.NoError(err)
+	assert.Equal("SELECT * FROM users WHERE id = ?", out.Query)
 }
 
 func TestSQLResourceWithError(t *testing.T) {
 	assert := assert.New(t)
-	testCases := []struct {
-		span pb.Span
-	}{
-		{
-			pb.Span{
-				Resource: "SELECT * FROM users WHERE id = '' AND '",
-				Type:     "sql",
-			},
-		},
-		{
-			pb.Span{
-				Resource: "INSERT INTO pages (id, name) VALUES (%(id0)s, %(name0)s), (%(id1)s, %(name1",
-				Type:     "sql",
-			},
-		},
-		{
-			pb.Span{
-				Resource: "INSERT INTO pages (id, name) VALUES (%(id0)s, %(name0)s), (%(id1)s, %(name1)",
-				Type:     "sql",
-			},
-		},
+	testCases := []string{
+		"SELECT * FROM users WHERE id = '' AND '",
+		"INSERT INTO pages (id, name) VALUES (%(id0)s, %(name0)s), (%(id1)s, %(name1",
+		"INSERT INTO pages (id, name) VALUES (%(id0)s, %(name0)s), (%(id1)s, %(name1)",
 	}
-
-	for _, tc := range testCases {
-		NewObfuscator(nil).Obfuscate(&tc.span)
-		assert.Equal("Non-parsable SQL query", tc.span.Resource)
-		assert.Equal("Non-parsable SQL query", tc.span.Meta["sql.query"])
+	for _, in := range testCases {
+		out, err := NewObfuscator(nil).Obfuscate("sql", in)
+		assert.Error(err)
+		assert.Equal("Non-parsable SQL query", out.Query)
 	}
 }
 
@@ -147,22 +107,16 @@ func TestSQLUTF8(t *testing.T) {
 
 func TestSQLTableNames(t *testing.T) {
 	t.Run("on", func(t *testing.T) {
-		span := &pb.Span{
-			Resource: "SELECT * FROM users WHERE id = 42",
-			Type:     "sql",
-		}
-		NewObfuscator(&Config{SQL: SQLConfig{TableNames: true}}).Obfuscate(span)
-		assert.Equal(t, "users", span.Meta["sql.tables"])
+		out, err := NewObfuscator(&Config{SQL: SQLConfig{TableNames: true}}).Obfuscate("sql", "SELECT * FROM users WHERE id = 42")
+		assert.NoError(t, err)
+		assert.Equal(t, "users", out.TablesCSV)
 
 	})
 
 	t.Run("off", func(t *testing.T) {
-		span := &pb.Span{
-			Resource: "SELECT * FROM users WHERE id = 42",
-			Type:     "sql",
-		}
-		NewObfuscator(&Config{SQL: SQLConfig{TableNames: false}}).Obfuscate(span)
-		assert.Empty(t, span.Meta["sql.tables"])
+		out, err := NewObfuscator(&Config{SQL: SQLConfig{TableNames: false}}).Obfuscate("sql", "SELECT * FROM users WHERE id = 42")
+		assert.NoError(t, err)
+		assert.Empty(t, out.TablesCSV)
 	})
 }
 
@@ -705,9 +659,8 @@ LIMIT 1
 
 	for _, c := range cases {
 		t.Run("", func(t *testing.T) {
-			s := SQLSpan(c.query)
-			NewObfuscator(nil).Obfuscate(s)
-			assert.Equal(t, c.expected, s.Resource)
+			out, _ := NewObfuscator(nil).Obfuscate("sql", c.query)
+			assert.Equal(t, c.expected, out.Query)
 		})
 	}
 }
@@ -1337,16 +1290,6 @@ func BenchmarkQueryCacheTippingPoint(b *testing.B) {
 	}
 }
 
-func CassSpan(query string) *pb.Span {
-	return &pb.Span{
-		Resource: query,
-		Type:     "cassandra",
-		Meta: map[string]string{
-			"query": query,
-		},
-	}
-}
-
 func TestCassQuantizer(t *testing.T) {
 	assert := assert.New(t)
 
@@ -1385,9 +1328,9 @@ func TestCassQuantizer(t *testing.T) {
 	}
 
 	for _, testCase := range queryToExpected {
-		s := CassSpan(testCase.in)
-		NewObfuscator(nil).Obfuscate(s)
-		assert.Equal(testCase.expected, s.Resource)
+		out, err := NewObfuscator(nil).Obfuscate("sql", testCase.in)
+		assert.NoError(err)
+		assert.Equal(testCase.expected, out.Query)
 	}
 }
 

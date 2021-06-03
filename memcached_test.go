@@ -8,7 +8,6 @@ package obfuscate
 import (
 	"testing"
 
-	"github.com/DataDog/tracepb/pb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,11 +37,8 @@ func TestObfuscateMemcached(t *testing.T) {
 			"decr mykey 5",
 		},
 	} {
-		span := pb.Span{
-			Type: "memcached",
-			Meta: map[string]string{k: tt.in},
-		}
-		NewObfuscator(nil).obfuscateMemcached(&span)
-		assert.Equal(t, tt.out, span.Meta[k])
+		out, err := NewObfuscator(&Config{Memcached: Enablable{true}}).Obfuscate("memcached", tt.in)
+		assert.NoError(t, err)
+		assert.Equal(t, tt.out, out.Query)
 	}
 }
